@@ -1,0 +1,39 @@
+{
+  "base": "https://demo.inelabteamdev.com",
+  "ranAt": "2026-09-19T00:00:00.000Z",
+  "evidence": [
+    "Manual Chrome DevTools capture supplied by the candidate on 2026-09-19.",
+    "Public client bundle inspected at /assets/index-B9UiQq4X.js on 2026-09-19."
+  ],
+  "findings": {
+    "catalogEndpoint": "GET /api/catalog?page={page}&pageSize={pageSize}",
+    "detailsEndpoint": "GET /api/product/{id}",
+    "priceEndpoint": "GET /api/products/{id}/price",
+    "challengeEndpoint": "GET /api/challenge",
+    "sessionEndpoint": "POST /api/session",
+    "revealMechanism": "browser_attested_session",
+    "hoverNetworkRequest": false,
+    "hoverRequirements": {
+      "minimumMouseMoves": 8,
+      "minimumDwellMs": 600,
+      "clickMustBeTrusted": true
+    },
+    "sessionFlow": "challenge -> browser attestation and proof -> session bearer token -> encrypted price response",
+    "priceResponse": "The price endpoint returns an encrypted field. The public client decrypts it with a token-derived SHA-256 XOR key.",
+    "priceCanChangePerRefresh": true,
+    "displayFormatCanChangePerRefresh": true,
+    "outOfStockStillHasValidPrice": true,
+    "observedOutcomes": [
+      "POST /api/session 200 followed by GET /api/products/325/price 200",
+      "POST /api/session 401 produces challenge_failed",
+      "Direct navigation to the price endpoint returns 401 because it lacks Authorization: Bearer {token}"
+    ]
+  },
+  "productionDecision": {
+    "strategy": "browser",
+    "reason": "The session proof incorporates browser-derived canvas, WebGL, frame-timing, hover, and trusted-click attestation. A fabricated HTTP attestation was rejected with 401.",
+    "catalogAndDetails": "HTTP JSON",
+    "priceAndStock": "Playwright with full fresh browser flow on every attempt",
+    "concurrency": 1
+  }
+}
