@@ -18,16 +18,17 @@ export async function scrapeProduct(product, { headed = false, maxAttempts } = {
     };
   } catch (error) {
     return {
-      ok: false,
-      outcome: 'failed',
-      errorCode: error.code ?? 'UNKNOWN',
-      errorMessage: String(error.message ?? error).slice(0, 1000),
-      httpStatus: error.status ?? null,
-      attempts: Math.max(1, error.trace?.length ?? 1),
-      durationMs: Date.now() - started,
-      startedAt,
-      trace: error.trace ?? [],
-      meta: { strategy: 'browser' },
-    };
+  ok: false,
+  outcome: 'failed',
+  errorCode: error.code ?? 'UNKNOWN',
+  errorMessage: String(error.message ?? error).slice(0, 1000),
+  httpStatus: error.status ?? null,
+  retryable: error.retryable ?? false,
+  attempts: Math.max(1, error.trace?.length ?? 1),
+  durationMs: Date.now() - started,
+  startedAt,
+  trace: error.trace ?? [],
+  meta: { strategy: 'browser' },
+};
   }
 }

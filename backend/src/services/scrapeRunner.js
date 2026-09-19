@@ -73,6 +73,7 @@ export async function executeRun(runId, productIds = null) {
     // 3. the run budget is exhausted
     if (
       !result.ok &&
+      result.retryable !== false &&
       result.errorCode !== 'BUDGET_EXCEEDED' &&
       pass < SP.limits.retryPasses
     ) {

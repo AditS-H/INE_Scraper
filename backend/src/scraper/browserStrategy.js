@@ -36,18 +36,45 @@ async function observationFromPage(page, productName) {
   const currentPrice = prices.at(-1);
   if (!currentPrice) throw new ScrapeError('PARSE_FAILED', 'successful price block had no price');
 
-  const stockText = (await page.locator('.price-facets').innerText()).toLowerCase();
-  let stock;
-  if (/out of stock|sold out|unavailable/.test(stockText)) {
-    stock = { in_stock: false, stock_status: 'Out Of Stock', stock_qty: 0 };
-  } else if (/(?:only|just)\s+(\d+)\s+left/.test(stockText)) {
-    const quantity = Number(stockText.match(/(?:only|just)\s+(\d+)\s+left/)[1]);
-    stock = { in_stock: true, stock_status: `Only ${quantity} Left`, stock_qty: quantity };
-  } else if (/in stock|available|limited stock|few left/.test(stockText)) {
-    stock = { in_stock: true, stock_status: 'In Stock', stock_qty: null };
-  } else {
-    throw new ScrapeError('PARSE_FAILED', `successful price block had unknown stock state: ${stockText}`);
-  }
+ const stockText = (await page.locator('.price-facets').innerText())
+  .replace(/\s+/g, ' ')
+  .trim()
+  .toLowerCase();
+
+let stock;
+
+const quantityMatch = stockText.match(
+  /(?:only|just)?\s*(\d+)\s+left\b/i
+);
+
+if (/out of stock|sold out|unavailable/.test(stockText) && !quantityMatch) {
+  stock = {
+    in_stock: false,
+    stock_status: 'Out Of Stock',
+    stock_qty: 0
+  };
+} else if (quantityMatch) {
+  const quantity = Number(quantityMatch[1]);
+
+  stock = {
+    in_stock: true,
+    stock_status: quantity === 1 ? 'Only 1 Left' : `Only ${quantity} Left`,
+    stock_qty: quantity
+  };
+} else if (
+  /in stock|available|limited stock|few left|selling fast/.test(stockText)
+) {
+  stock = {
+    in_stock: true,
+    stock_status: 'In Stock',
+    stock_qty: null
+  };
+} else {
+  throw new ScrapeError(
+    'PARSE_FAILED',
+    `successful price block had unknown stock state: ${stockText}`
+  );
+}
 
   const money = parseMoney(currentPrice);
   return Observation.parse({ price: money.amount, currency: money.currency, ...stock, name: productName });
