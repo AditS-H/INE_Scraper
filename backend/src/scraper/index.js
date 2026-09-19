@@ -1,10 +1,10 @@
 import { scrapeViaBrowser } from './browserStrategy.js';
 
-export async function scrapeProduct(product, { headed = false } = {}) {
+export async function scrapeProduct(product, { headed = false, maxAttempts } = {}) {
   const startedAt = new Date();
   const started = Date.now();
   try {
-    const result = await scrapeViaBrowser(product.store_product_id, { productName: product.name, headed });
+    const result = await scrapeViaBrowser(product.store_product_id, { productName: product.name, headed, maxAttempts });
     const attempts = result.meta.attempts;
     return {
       ok: true,

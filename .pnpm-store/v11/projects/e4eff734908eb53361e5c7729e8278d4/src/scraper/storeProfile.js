@@ -19,6 +19,8 @@ export const STORE_PROFILE = {
   limits: {
     requestTimeoutMs: config.requestTimeoutMs,
     maxAttempts: config.maxAttempts,
+    attemptsPerPass: config.maxAttempts,
+    retryPasses: config.retryPasses,
     baseBackoffMs: 700,
     maxBackoffMs: 8_000,
     hoverMoves: 8,

@@ -8,9 +8,10 @@ const int = (name, fallback) => {
 export const config = {
   port: int('PORT', 10000),
   storeBaseUrl: process.env.STORE_BASE_URL ?? 'https://demo.inelabteamdev.com',
-  requestTimeoutMs: int('REQUEST_TIMEOUT_MS', 20_000),
-  maxAttempts: int('MAX_ATTEMPTS', 4),
-  scrapeConcurrency: int('SCRAPE_CONCURRENCY', 1),
+  requestTimeoutMs: int('REQUEST_TIMEOUT_MS', 30_000),
+  maxAttempts: int('MAX_ATTEMPTS', 6),
+  retryPasses: int('RETRY_PASSES', 1),
+  scrapeConcurrency: int('SCRAPE_CONCURRENCY', 2),
   runBudgetMs: int('RUN_BUDGET_MS', 8 * 60_000),
   cronSecret: process.env.CRON_SECRET ?? '',
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173').split(',').map((v) => v.trim()),

@@ -6,6 +6,10 @@ import { scrapeProduct } from '../scraper/index.js';
 import { STORE_PROFILE as SP } from '../scraper/storeProfile.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const withTimeout = (promise, ms, message) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+]);
 
 export async function startRun({ trigger = 'cron', productIds = null } = {}) {
   const runId = randomUUID();
@@ -25,27 +29,94 @@ export async function executeRun(runId, productIds = null) {
   try {
     let query = db().from('tracked_products').select('*').eq('is_active', true);
     query = productIds?.length ? query.in('id', productIds) : query.lte('next_due_at', new Date().toISOString());
-    const { data: products = [], error } = await query;
+    const { data: products = [], error } = await withTimeout(query, 30_000, 'tracked product query timed out');
     if (error) throw error;
     counts.total = products.length;
+    await db().from('scrape_runs').update({ total: counts.total }).eq('id', runId);
 
-    const limit = pLimit(SP.limits.concurrency);
-    await Promise.all(products.map((product) => limit(async () => {
-      if (Date.now() > deadline) {
-        await persistResult(runId, product, budgetExceeded());
-        counts.failed += 1;
-        return;
+    const results = new Map();
+    let pending = products;
+
+    for (let pass = 0; pass <= SP.limits.retryPasses && pending.length; pass += 1) {
+      const passResults = await scrapePass(pending, deadline);
+      const retry = [];
+
+      for (const product of pending) {
+        const result = passResults.get(product.id);
+        if (pass === 0 && !result.ok && result.errorCode !== 'BUDGET_EXCEEDED') {
+          results.set(product.id, result);
+          retry.push(product);
+          continue;
+        }
+        results.set(product.id, results.has(product.id)
+          ? mergeResults(results.get(product.id), result)
+          : result);
       }
-      await sleep(Math.round(Math.random() * 900));
-      const result = await scrapeProduct(product);
+
+      pending = retry;
+    }
+
+    for (const product of products) {
+      const result = results.get(product.id) ?? budgetExceeded();
       await persistResult(runId, product, result);
       counts[result.outcome] += 1;
-    })));
+    }
+  } catch (error) {
+    await db().from('scrape_runs').update({ ...counts, notes: String(error.message ?? error).slice(0, 500) }).eq('id', runId);
+    throw error;
   } finally {
     await db().from('scrape_runs').update({ ...counts, finished_at: new Date().toISOString() }).eq('id', runId);
     await releaseLock(runId);
   }
   return counts;
+}
+
+async function scrapePass(products, deadline) {
+  const results = new Map();
+  const limit = pLimit(SP.limits.concurrency);
+
+  await Promise.all(products.map((product) => limit(async () => {
+    if (Date.now() > deadline) {
+      results.set(product.id, budgetExceeded());
+      return;
+    }
+    await sleep(Math.round(Math.random() * 900));
+    const remainingMs = Math.max(1_000, Math.min(5 * 60_000, deadline - Date.now()));
+    results.set(product.id, await withTimeout(
+      scrapeProduct(product, { maxAttempts: SP.limits.attemptsPerPass }),
+      remainingMs,
+      'product scrape exceeded the run time budget',
+    ).catch((error) => ({
+      ok: false,
+      outcome: 'failed',
+      errorCode: 'TIMEOUT',
+      errorMessage: String(error.message ?? error),
+      attempts: 0,
+      durationMs: remainingMs,
+      startedAt: new Date(),
+      trace: [],
+      meta: { strategy: 'browser' },
+    })));
+  })));
+
+  return results;
+}
+
+function mergeResults(first, second) {
+  const firstAttempts = first.attempts ?? first.trace?.length ?? 0;
+  const secondTrace = (second.trace ?? []).map((entry) => ({ ...entry, n: (entry.n ?? 0) + firstAttempts }));
+  const attempts = firstAttempts + (second.attempts ?? second.trace?.length ?? 0);
+  return {
+    ...first,
+    ...second,
+    ok: second.ok,
+    outcome: second.ok ? 'retried' : 'failed',
+    attempts,
+    durationMs: (first.durationMs ?? 0) + (second.durationMs ?? 0),
+    startedAt: first.startedAt,
+    trace: [...(first.trace ?? []), ...secondTrace],
+    meta: { ...(first.meta ?? {}), ...(second.meta ?? {}), attempts },
+  };
 }
 
 function budgetExceeded() {

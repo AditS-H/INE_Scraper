@@ -81,6 +81,18 @@ create table if not exists run_locks (
   expires_at timestamptz not null
 );
 
+create table if not exists alerts (
+  id uuid primary key default gen_random_uuid(),
+  tracked_product_id uuid references tracked_products(id) on delete cascade,
+  kind text not null check (kind in ('price_drop', 'back_in_stock', 'structure_drift', 'stale')),
+  message text not null,
+  old_value numeric(12,2),
+  new_value numeric(12,2),
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists alerts_created_at on alerts (created_at desc);
+
 create or replace function acquire_run_lock(p_key text, p_run_id uuid, p_now timestamptz, p_expires timestamptz)
 returns boolean language plpgsql as $$
 begin
@@ -96,4 +108,5 @@ alter table tracked_products enable row level security;
 alter table price_history enable row level security;
 alter table scrape_logs enable row level security;
 alter table scrape_runs enable row level security;
+alter table alerts enable row level security;
 -- No anon/authenticated policies: the backend service role is the only data writer.
