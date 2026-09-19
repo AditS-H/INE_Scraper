@@ -40,7 +40,11 @@ trackedRouter.post('/', async (request, response, next) => {
   try {
     const { store_product_id, name, url, category, brand, description } = request.body ?? {};
     if (!store_product_id || !name) return response.status(400).json({ error: 'store_product_id and name are required' });
-    const row = { store_product_id: String(store_product_id), name, url, category, brand, description };
+    const row = {
+      store_product_id: String(store_product_id), name, url, category, brand, description,
+      is_active: true,
+      next_due_at: new Date().toISOString(),
+    };
     const { data, error } = await db().from('tracked_products').upsert(row, { onConflict: 'store_product_id' }).select().single();
     if (error) throw error;
     response.status(201).json(data);

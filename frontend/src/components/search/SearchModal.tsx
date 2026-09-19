@@ -47,15 +47,14 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
   const items = search.data?.items ?? []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-surface-0/70 px-4 pb-10 pt-[12vh] backdrop-blur-sm">
-      <button
-        type="button"
-        aria-label="Close search"
-        className="fixed inset-0 cursor-default"
-        onClick={onClose}
-      />
-
-      <div className="relative w-full max-w-lg animate-pop-in overflow-hidden rounded-2xl border border-line bg-surface-1 shadow-2xl shadow-black/50">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-surface-0/70 px-4 pb-10 pt-[12vh] backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative z-10 w-full max-w-lg animate-pop-in overflow-hidden rounded-2xl border border-line bg-surface-1 shadow-2xl shadow-black/50"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center gap-2.5 border-b border-line px-4 py-3.5">
           <Icon name="search" size={17} className="shrink-0 text-ink-3" />
           <input

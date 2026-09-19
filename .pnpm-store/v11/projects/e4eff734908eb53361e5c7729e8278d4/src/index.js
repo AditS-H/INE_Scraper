@@ -7,6 +7,7 @@ import { trackedRouter } from './routes/tracked.js';
 import { runsRouter } from './routes/runs.js';
 import { alertsRouter } from './routes/alerts.js';
 import { startRun } from './services/scrapeRunner.js';
+import { syncCatalogToDatabase } from './services/catalogSync.js';
 
 const app = express();
 app.use(cors({ origin: config.corsOrigins }));
@@ -54,4 +55,11 @@ app.use((error, _request, response, _next) => {
   response.status(500).json({ error: 'internal_error', message: String(error.message ?? error) });
 });
 
-app.listen(config.port, () => console.log(`INE backend listening on :${config.port}`));
+app.listen(config.port, () => {
+  console.log(`INE backend listening on :${config.port}`);
+  if (hasDatabaseConfig) {
+    syncCatalogToDatabase()
+      .then(({ catalogCount, insertedCount }) => console.log('catalog sync complete', { catalogCount, insertedCount }))
+      .catch((error) => console.error('catalog sync failed', error));
+  }
+});
