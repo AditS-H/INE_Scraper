@@ -1,151 +1,321 @@
-# INE Product Price Tracker
+# INE Price Tracker
 
-A full-stack price and stock tracker for `https://demo.inelabteamdev.com/`.
+A price and stock tracker built for the INE assignment.
 
-## Architecture
+The app lets users search the mock store catalog, track products, and keep a history of price and stock changes. Scraping is handled in the backend with Playwright and runs automatically for products that are due.
 
-```text
-React/Vite frontend -> Express backend -> Supabase Postgres
-                                      -> Playwright store scraper
-External cron        -> POST /api/cron/scrape
-```
+## Live
 
-The store catalogue and product metadata are public JSON. Price retrieval is browser-attested: the scraper opens the product page, accepts delayed cookie consent, hovers the price block, clicks Reveal, retries Try again on the same page, and validates the rendered price and stock state.
+- **Frontend:** https://ine-scraper.vercel.app
+- **Backend:** https://ine-scraper-oun5.onrender.com
 
-## Local setup
+## What it does
 
-### Backend
+- Search the mock store catalog by product name
+- Track and untrack products
+- Scrape price and stock information
+- Store price and stock history
+- Keep per-product scrape logs
+- Retry temporary scraping failures
+- Scrape multiple products concurrently
+- Run scheduled scraping without the frontend being open
+- Show recent scrape runs and backend health
+- Show price-drop and back-in-stock alerts
+- Detect scraping/page structure problems through scraper errors
+- Support configurable scrape intervals
+- Run automated CI checks with GitHub Actions
 
-```powershell
-cd backend
-npm install
-Copy-Item .env.example .env
-# Fill in SUPABASE_URL, SUPABASE_SERVICE_KEY, and CRON_SECRET
-npm start
-```
-
-Apply `backend/src/db/schema.sql` in the Supabase SQL editor. Re-run it after schema updates, including the alerts table migration.
+## Tech Stack
 
 ### Frontend
 
-```powershell
-cd frontend
-npm install
-Copy-Item .env.example .env
-# Set VITE_API_BASE=http://localhost:10000
-npm run dev
-```
+- React
+- TypeScript
+- Vite
+- React Router
+- React Query
+- Recharts
+- Tailwind CSS
 
-## Backend commands
+### Backend
 
-| Command | Purpose |
-|---|---|
-| `npm start` | Start Express |
-| `npm run dev` | Start Express with watch mode |
-| `npm test` | Run backend tests |
-| `npm run lint` | Check backend syntax |
-| `node src/scripts/scrapeOnce.mjs --product 733` | Run a no-write live scrape |
-| `node src/scripts/headedRun.mjs --product 733` | Run a visible browser scrape |
+- Node.js
+- Express
+- Playwright
+- p-limit
+- Zod
 
-## Environment variables
+### Database
 
-```env
-PORT=10000
-SUPABASE_URL=https://<project>.supabase.co
-SUPABASE_SERVICE_KEY=<service-role-key; backend only>
-CRON_SECRET=<random-secret>
-CORS_ORIGINS=http://localhost:5173
-STORE_BASE_URL=https://demo.inelabteamdev.com
-PLAYWRIGHT_HEADLESS=true
-PLAYWRIGHT_CHROMIUM_EXECUTABLE=
-REQUEST_TIMEOUT_MS=30000
-MAX_ATTEMPTS=6
-RETRY_PASSES=1
-SCRAPE_CONCURRENCY=2
-RUN_BUDGET_MS=480000
-```
+- Supabase / PostgreSQL
 
-The frontend only uses:
+### Deployment
 
-```env
-VITE_API_BASE=http://localhost:10000
-```
+- Vercel — frontend
+- Render — backend
+- cron-job.org — scheduled backend triggers
+- GitHub Actions — CI
 
-## API
-
-Implemented routes:
+## Project Structure
 
 ```text
-GET  /api/health
-GET  /api/store/catalog?page=1&pageSize=20
-GET  /api/store/search?q=laptop
-GET  /api/tracked
-POST /api/tracked
-GET  /api/tracked/:id
-GET  /api/tracked/:id/history?range=24h|7d|30d|all
-GET  /api/tracked/:id/logs?limit=100
-PATCH /api/tracked/:id
-DELETE /api/tracked/:id
-POST /api/tracked/:id/scrape
-GET  /api/runs?limit=20
-GET  /api/alerts
-POST /api/alerts/:id/read
+INE_project/
+├── backend/
+│   ├── src/
+│   │   ├── db/
+│   │   ├── lib/
+│   │   ├── routes/
+│   │   ├── scraper/
+│   │   ├── scripts/
+│   │   ├── services/
+│   │   ├── config.js
+│   │   └── index.js
+│   ├── tests/
+│   └── package.json
+│
+├── frontend/
+│   ├── src/
+│   └── package.json
+│
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+│
+└── README.md
+````
+
+## How the Scraper Works
+
+Tracked products are stored in Supabase.
+
+Each product has its own:
+
+* `scrape_interval_min`
+* `next_due_at`
+* active/inactive state
+
+The current scrape interval is **120 minutes (2 hours)**.
+
+cron-job.org sends:
+
+```text
 POST /api/cron/scrape
 ```
 
-`POST /api/cron/scrape` is for the external scheduler only and requires `x-cron-secret`.
+every 10 minutes.
 
-## Data integrity
+The 10-minute cron is only used as a polling/wake-up mechanism. The backend checks which products are actually due and only scrapes those.
 
-- `price_history` contains successful validated observations only.
-- Failed attempts create `scrape_logs` rows and no history row.
-- Prices must be positive at both application and database level.
-- Out-of-stock products can still have valid prices.
-- Unknown stock states fail closed instead of being assumed in stock.
-- Each product is attempted six times per pass, then failed products enter one deferred retry pass.
-- Two products can scrape concurrently through `p-limit(2)`.
-
-## Deployment
-
-### Render
-
-- Root directory: `backend`
-- Build command: `npm ci`
-- Start command: `npm start`
-- Configure all backend environment variables.
-- Set `CORS_ORIGINS` to the Vercel origin.
-
-Playwright browser memory should be evaluated before using the free Render tier. A separate worker or GitHub Actions runner may be required for browser scraping.
-
-### Vercel
-
-- Root directory: `frontend`
-- Framework: Vite
-- Set `VITE_API_BASE` to the Render service URL.
-
-### External cron
-
-Warm-up:
+The selection logic is effectively:
 
 ```text
-GET https://<render-service>.onrender.com/api/health
+is_active = true
+AND next_due_at <= current time
 ```
 
-Scrape trigger every two hours:
+This keeps the actual product scrape interval at approximately 2 hours while allowing the Render backend to be reached regularly.
+
+## Scraping Reliability
+
+The scraper uses Playwright because the mock store requires browser-based interaction.
+
+Scraping is limited to two concurrent product jobs:
 
 ```text
-POST https://<render-service>.onrender.com/api/cron/scrape
-x-cron-secret: <CRON_SECRET>
+SCRAPE_CONCURRENCY=2
 ```
 
-## Verification
+Retries are handled in passes:
 
-```powershell
-cd backend
-npm test
+```text
+2 attempts per pass
+3 passes maximum
+
+2 × 3 = 6 attempts maximum per product
+```
+
+Retryable failures are given another pass, while non-retryable failures are recorded without unnecessarily repeating the same operation.
+
+The scraper also has a run-time budget so a single long-running run cannot block the system indefinitely.
+
+## Data Handling
+
+Successful scrapes are stored in `price_history`.
+
+Every scrape result is also stored in `scrape_logs`, including failures.
+
+Failed scrapes do not write invalid price or stock values into price history.
+
+Tracked products also keep their latest:
+
+* Price
+* Currency
+* Stock state
+* Scrape status
+* Next scheduled scrape time
+* Consecutive failure count
+
+## Alerts
+
+The app supports in-app alerts for:
+
+* Price drops
+* Back-in-stock events
+
+Alerts are generated from successful scrape results by comparing the latest observation with the previous successful observation.
+
+## CI/CD
+
+GitHub Actions runs on pushes and pull requests.
+
+### Backend checks
+
+```bash
+npm ci
 npm run lint
+npm test
+```
 
-cd ..\frontend
+### Frontend checks
+
+```bash
+npm ci
 npm run lint
 npm run build
 ```
+
+The production backend is deployed through Render after the repository CI checks pass.
+
+The production frontend is deployed through Vercel using its GitHub integration.
+
+The overall flow is:
+
+```text
+Git push
+   ↓
+GitHub Actions
+   ↓
+Lint + tests + build
+   ↓
+CI passes
+   ↓
+Render deploys backend
+Vercel deploys frontend
+```
+
+## Environment Variables
+
+### Backend
+
+Create:
+
+```text
+backend/.env
+```
+
+Example:
+
+```env
+PORT=10000
+
+STORE_BASE_URL=https://demo.inelabteamdev.com
+
+SUPABASE_URL=
+SUPABASE_SERVICE_KEY=
+
+CRON_SECRET=
+CORS_ORIGINS=https://ine-scraper.vercel.app
+
+MAX_ATTEMPTS=2
+RETRY_PASSES=2
+SCRAPE_CONCURRENCY=2
+RUN_BUDGET_MS=480000
+
+PLAYWRIGHT_HEADLESS=true
+```
+
+Do not commit real secret values to GitHub.
+
+### Frontend
+
+Create the required frontend environment variables in:
+
+```text
+frontend/.env
+```
+
+Do not commit secret values.
+
+## Running Locally
+
+### Backend
+
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+The backend will start using the configured environment variables.
+
+### Frontend
+
+In another terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Then open the local Vite URL shown in the terminal.
+
+## Useful Backend Commands
+
+Run tests:
+
+```bash
+cd backend
+npm test
+```
+
+Check backend syntax:
+
+```bash
+npm run lint
+```
+
+Run a single scrape:
+
+```bash
+npm run scrape:once
+```
+
+Run a headed scrape:
+
+```bash
+npm run scrape:headed
+```
+
+## Scheduling
+
+Tracked products currently use:
+
+```text
+scrape_interval_min = 120
+```
+
+which means each product is scheduled approximately every 2 hours.
+
+The external scheduler runs every 10 minutes and checks for products whose `next_due_at` has arrived.
+
+This separates the scheduler polling interval from the actual product scrape interval:
+
+```text
+Cron polling:       10 minutes
+Product scraping:   120 minutes
+```
+
+## Notes
+
+The scraper was tested against the provided mock store, including slow responses, retry scenarios, browser scraping, and different stock states.
