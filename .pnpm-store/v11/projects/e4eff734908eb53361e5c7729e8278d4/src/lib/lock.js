@@ -2,7 +2,7 @@ import { db } from '../db/supabase.js';
 
 const LOCK_KEY = 'scrape-run';
 
-export async function acquireLock(runId, leaseMs = 10 * 60_000) {
+export async function acquireLock(runId, leaseMs = 15 * 60_000) {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + leaseMs);
   const { data, error } = await db().rpc('acquire_run_lock', {

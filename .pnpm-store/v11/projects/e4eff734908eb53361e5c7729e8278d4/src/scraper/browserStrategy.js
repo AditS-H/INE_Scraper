@@ -96,12 +96,17 @@ async function performHumanReveal(page) {
 }
 
 async function createBrowserPage({ headed, slowMo }) {
+
   const browser = await chromium.launch({
     headless: !headed,
     slowMo,
-    executablePath: config.playwrightExecutable,
-    args: ['--disable-dev-shm-usage', '--no-sandbox', '--disable-blink-features=AutomationControlled'],
+    args: [
+      '--disable-dev-shm-usage',
+      '--no-sandbox',
+      '--disable-blink-features=AutomationControlled'
+    ],
   });
+  
   const context = await browser.newContext({
     viewport: { width: 1360, height: 900 },
     locale: 'en-IN',

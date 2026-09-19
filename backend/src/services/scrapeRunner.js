@@ -37,24 +37,51 @@ export async function executeRun(runId, productIds = null) {
     const results = new Map();
     let pending = products;
 
-    for (let pass = 0; pass <= SP.limits.retryPasses && pending.length; pass += 1) {
-      const passResults = await scrapePass(pending, deadline);
-      const retry = [];
+   for (
+  let pass = 0;
+  pass <= SP.limits.retryPasses && pending.length;
+  pass += 1
+) {
+  const passResults = await scrapePass(pending, deadline);
+  const retry = [];
 
-      for (const product of pending) {
-        const result = passResults.get(product.id);
-        if (pass === 0 && !result.ok && result.errorCode !== 'BUDGET_EXCEEDED') {
-          results.set(product.id, result);
-          retry.push(product);
-          continue;
-        }
-        results.set(product.id, results.has(product.id)
-          ? mergeResults(results.get(product.id), result)
-          : result);
-      }
+  for (const product of pending) {
+    const result = passResults.get(product.id);
 
-      pending = retry;
+    if (!result) {
+      const missing = budgetExceeded();
+
+      results.set(
+        product.id,
+        results.has(product.id)
+          ? mergeResults(results.get(product.id), missing)
+          : missing
+      );
+
+      continue;
     }
+
+    const merged = results.has(product.id)
+      ? mergeResults(results.get(product.id), result)
+      : result;
+
+    results.set(product.id, merged);
+
+    // Failed product gets another pass, unless:
+    // 1. it succeeded
+    // 2. we have exhausted all retry passes
+    // 3. the run budget is exhausted
+    if (
+      !result.ok &&
+      result.errorCode !== 'BUDGET_EXCEEDED' &&
+      pass < SP.limits.retryPasses
+    ) {
+      retry.push(product);
+    }
+  }
+
+  pending = retry;
+}
 
     for (const product of products) {
       const result = results.get(product.id) ?? budgetExceeded();

@@ -45,10 +45,24 @@ app.use('/api/runs', runsRouter);
 app.use('/api/alerts', alertsRouter);
 app.post('/api/cron/scrape', async (request, response, next) => {
   try {
-    if (!config.cronSecret || request.get('x-cron-secret') !== config.cronSecret) return response.status(401).json({ error: 'unauthorized' });
-    const run = await startRun({ trigger: 'cron' });
-    return response.status(202).json(run);
-  } catch (error) { next(error); }
+    if (
+      !config.cronSecret ||
+      request.get('x-cron-secret') !== config.cronSecret
+    ) {
+      return response.status(401).json({ error: 'unauthorized' });
+    }
+
+    startRun({ trigger: 'cron' }).catch((error) => {
+      console.error('Cron scrape failed:', error);
+    });
+
+    return response.status(202).json({
+      ok: true,
+      message: 'Scrape started'
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 app.use((error, _request, response, _next) => {
   console.error(error);
