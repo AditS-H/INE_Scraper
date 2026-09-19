@@ -11,7 +11,7 @@
     "scrape:headed": "node src/scripts/headedRun.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "node --check src/index.js && node --check src/scraper/browserStrategy.js"
+    "lint": "node --check src/index.js && node --check src/scraper/browserStrategy.js && node --check src/scraper/index.js && node --check src/services/scrapeRunner.js && node --check src/services/alertService.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
