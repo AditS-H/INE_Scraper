@@ -4,6 +4,7 @@ import { db } from '../db/supabase.js';
 import { acquireLock, releaseLock } from '../lib/lock.js';
 import { scrapeProduct } from '../scraper/index.js';
 import { STORE_PROFILE as SP } from '../scraper/storeProfile.js';
+import { createAlertsForSuccess } from './alertService.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const withTimeout = (promise, ms, message) => Promise.race([
@@ -156,7 +157,10 @@ function budgetExceeded() {
 }
 
 export async function persistResult(runId, product, result) {
-  const nextDueAt = new Date(Date.now() + product.scrape_interval_min * 60_000).toISOString();
+  const nextDueAt = new Date(
+    Date.now() + product.scrape_interval_min * 60_000
+  ).toISOString();
+
   const logRow = {
     tracked_product_id: product.id,
     run_id: runId,
@@ -173,30 +177,73 @@ export async function persistResult(runId, product, result) {
     finished_at: new Date().toISOString(),
   };
 
-  // The log is always written. The history insert below is reachable only for validated success.
-  const { error: logError } = await db().from('scrape_logs').insert(logRow);
+  // Always record the scrape attempt.
+  const { error: logError } = await db()
+    .from('scrape_logs')
+    .insert(logRow);
+
   if (logError) throw logError;
 
   if (result.ok) {
-    const { error: historyError } = await db().from('price_history').insert({
-      tracked_product_id: product.id, run_id: runId,
-      price: result.observation.price, currency: result.observation.currency,
-      in_stock: result.observation.in_stock, stock_status: result.observation.stock_status,
-      stock_qty: result.observation.stock_qty, strategy: result.meta.strategy,
-      extractor: result.meta.extractor, confidence: result.meta.confidence,
-    });
+
+    // Bonus feature: generate price-drop / back-in-stock alerts.
+    // Alert failures must never break a successful scrape.
+    try {
+      await createAlertsForSuccess(product, result.observation);
+    } catch (alertError) {
+      console.error('alert generation failed', {
+        productId: product.id,
+        error: alertError,
+      });
+    }
+
+    // Store validated successful price/stock history.
+    const { error: historyError } = await db()
+      .from('price_history')
+      .insert({
+        tracked_product_id: product.id,
+        run_id: runId,
+        price: result.observation.price,
+        currency: result.observation.currency,
+        in_stock: result.observation.in_stock,
+        stock_status: result.observation.stock_status,
+        stock_qty: result.observation.stock_qty,
+        strategy: result.meta.strategy,
+        extractor: result.meta.extractor,
+        confidence: result.meta.confidence,
+      });
+
     if (historyError) throw historyError;
-    const { error: productError } = await db().from('tracked_products').update({
-      last_scrape_at: new Date().toISOString(), last_outcome: result.outcome,
-      last_price: result.observation.price, last_currency: result.observation.currency,
-      last_in_stock: result.observation.in_stock, consecutive_failures: 0, next_due_at: nextDueAt,
-    }).eq('id', product.id);
+
+    // Update the tracked product's latest state and next schedule.
+    const { error: productError } = await db()
+      .from('tracked_products')
+      .update({
+        last_scrape_at: new Date().toISOString(),
+        last_outcome: result.outcome,
+        last_price: result.observation.price,
+        last_currency: result.observation.currency,
+        last_in_stock: result.observation.in_stock,
+        consecutive_failures: 0,
+        next_due_at: nextDueAt,
+      })
+      .eq('id', product.id);
+
     if (productError) throw productError;
+
   } else {
-    const { error: productError } = await db().from('tracked_products').update({
-      last_scrape_at: new Date().toISOString(), last_outcome: 'failed',
-      consecutive_failures: product.consecutive_failures + 1, next_due_at: nextDueAt,
-    }).eq('id', product.id);
+
+    // Failed scrape: record failure but don't write price history.
+    const { error: productError } = await db()
+      .from('tracked_products')
+      .update({
+        last_scrape_at: new Date().toISOString(),
+        last_outcome: 'failed',
+        consecutive_failures: product.consecutive_failures + 1,
+        next_due_at: nextDueAt,
+      })
+      .eq('id', product.id);
+
     if (productError) throw productError;
   }
 }
